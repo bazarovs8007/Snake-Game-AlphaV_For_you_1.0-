@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<title>Snake.io Premium</title>
+<style>
+  body{margin:0;background:#000;font-family:Arial;overflow:hidden}
+  canvas{position:fixed;inset:0;z-index:1;pointer-events:none}
+  .overlay{position:fixed;inset:0;z-index:10;display:flex;justify-content:center;align-items:center;background:rgba(0,0,0,.6)}
+  .card{background:#111;padding:28px;border-radius:16px;display:flex;flex-direction:column;gap:14px;min-width:220px}
+  button{padding:14px;font-size:17px;border:none;border-radius:10px;cursor:pointer;color:#fff}
+  .play{background:#1ec9ff}
+  .shop{background:#ffd700;color:#000}
+  .back{background:#ff5252}
+  .buy{background:#4caf50}
+  .hidden{display:none}
+  .ui{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:5;background:rgba(20,20,20,.8);padding:8px 16px;border-radius:12px;color:#ffd700}
+</style>
+</head>
+<body>
+
+<div class="ui">💰 SCoin: <span id="coin">0</span></div>
+
+<div id="menu" class="overlay">
+  <div class="card">
+    <button class="play" onclick="startGame()">PLAY</button>
+    <button class="shop" onclick="openShop()">SHOP</button>
+  </div>
+</div>
+
+<div id="shop" class="overlay hidden">
+  <div class="card">
+    <button class="buy" onclick="buySkin(0)">GREEN (FREE)</button>
+    <button class="buy" onclick="buySkin(1)">BLUE (10)</button>
+    <button class="buy" onclick="buySkin(2)">PURPLE (20)</button>
+    <button class="back" onclick="backMenu()">ORTGA</button>
+  </div>
+</div>
+
+<canvas id="game"></canvas>
+
+<div id="gameOver" class="overlay hidden">
+  <div class="card">
+    <div style="color:#fff;text-align:center">Urilib ketding</div>
+    <button class="play" onclick="startGame()">QAYTA O‘YNASH</button>
+    <button class="back" onclick="backMenu()">MENYU</button>
+  </div>
+</div>
+
+<script>
+/* ================= CANVAS ================= */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight}
+resize(); addEventListener("resize",resize);
+
+/* ================= INPUT CONTROL ================= */
+function enableInput(){canvas.style.pointerEvents="auto"}
+function disableInput(){canvas.style.pointerEvents="none"}
+
+/* ================= SAVE ================= */
+let SCoin = +localStorage.getItem("SCoin") || 0;
+let skin = +localStorage.getItem("skin") || 0;
+let penalty = +localStorage.getItem("penalty") || 5;
+function save(){
+  localStorage.setItem("SCoin",SCoin);
+  localStorage.setItem("skin",skin);
+  localStorage.setItem("penalty",penalty);
+}
+
+/* ================= SOUND (PREMIUM) ================= */
+const AudioCtx = window.AudioContext||window.webkitAudioContext;
+const audioCtx = new AudioCtx();
+const SND={}, files={soft:"soft.mp3",hard:"hard.mp3",eat:"eat.mp3",coin:"coin.mp3",die:"die.mp3",click:"click.mp3"};
+let bgSrc=null, bgGain=audioCtx.createGain(); bgGain.connect(audioCtx.destination); bgGain.gain.value=.4;
+
+function loadAll(){
+  Object.keys(files).forEach(k=>{
+    fetch(files[k]).then(r=>r.arrayBuffer()).then(b=>audioCtx.decodeAudioData(b)).then(d=>SND[k]=d);
+  });
+}
+loadAll();
+
+function playBG(t){
+  if(!SND[t])return;
+  if(bgSrc)bgSrc.stop();
+  bgSrc=audioCtx.createBufferSource();
+  bgSrc.buffer=SND[t]; bgSrc.loop=true; bgSrc.connect(bgGain); bgSrc.start();
+}
+function sfx(n,v=.8){
+  if(!SND[n])return;
+  const s=audioCtx.createBufferSource(), g=audioCtx.createGain();
+  g.gain.value=v; s.buffer=SND[n]; s.connect(g).connect(audioCtx.destination); s.start();
+}
+
+/* ================= GAME ================= */
+let snake,angle,target,running=false,food,grow=0,bots=[],coins=[];
+const skins=["lime","deepskyblue","violet"];
+
+document.onmousemove=e=>target={x:e.clientX,y:e.clientY};
+document.ontouchmove=e=>target={x:e.touches[0].clientX,y:e.touches[0].clientY};
+
+const rand=()=>({x:Math.random()*canvas.width,y:Math.random()*canvas.height});
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+
+function startGame(){
+  audioCtx.resume(); sfx("click"); playBG("soft");
+  hideAll(); enableInput();
+  snake=[{x:canvas.width/2,y:canvas.height/2}];
+  angle=0; target={...snake[0]}; food=rand(); grow=0;
+  bots=[]; coins=[];
+  for(let i=0;i<3;i++) bots.push({body:[rand()],a:Math.random()*6});
+  running=true; loop();
+}
+
+function loop(){
+  if(!running)return;
+  update(); draw();
+  requestAnimationFrame(loop);
+}
+
+function update(){
+  const dx=target.x-snake[0].x, dy=target.y-snake[0].y;
+  if(Math.hypot(dx,dy)>20) angle=Math.atan2(dy,dx);
+  const head={x:snake[0].x+Math.cos(angle)*3,y:snake[0].y+Math.sin(angle)*3};
+  snake.unshift(head); grow>0?grow--:snake.pop();
+
+  if(dist(head,food)<12){food=rand();grow+=4;SCoin++;sfx("eat");save()}
+
+  bots.forEach(b=>{
+    b.a+=(Math.random()-.5)*.2;
+    const bh={x:b.body[0].x+Math.cos(b.a)*2,y:b.body[0].y+Math.sin(b.a)*2};
+    b.body.unshift(bh); b.body.pop();
+    if(dist(head,bh)<10){
+      for(let i=0;i<4;i++) coins.push({x:bh.x+Math.random()*20,y:bh.y+Math.random()*20});
+      b.dead=true;
+    }
+  });
+  bots=bots.filter(b=>!b.dead);
+
+  coins=coins.filter(c=>{
+    if(dist(head,c)<10){SCoin+=2;sfx("coin");save();return false}
+    return true;
+  });
+
+  document.getElementById("coin").innerText=SCoin;
+
+  if(head.x<0||head.x>canvas.width||head.y<0||head.y>canvas.height) gameOver();
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="red"; circle(food,6);
+  ctx.fillStyle="gold"; coins.forEach(c=>circle(c,5));
+  ctx.fillStyle="orange"; bots.forEach(b=>b.body.forEach(p=>circle(p,6)));
+  ctx.fillStyle=skins[skin]; snake.forEach((p,i)=>{ctx.globalAlpha=1-i/snake.length; circle(p,6)}); ctx.globalAlpha=1;
+}
+
+function circle(p,r){ctx.beginPath();ctx.arc(p.x,p.y,r,0,6.28);ctx.fill()}
+
+function gameOver(){
+  running=false; disableInput(); sfx("die"); playBG("hard");
+  SCoin=Math.max(0,SCoin-penalty); penalty*=2; save();
+  document.getElementById("coin").innerText=SCoin;
+  hideAll(); show("gameOver");
+}
+
+/* ================= UI ================= */
+function hideAll(){["menu","shop","gameOver"].forEach(id=>document.getElementById(id).classList.add("hidden"))}
+function show(id){document.getElementById(id).classList.remove("hidden")}
+function openShop(){sfx("click");hideAll();show("shop")}
+function backMenu(){sfx("click");disableInput();hideAll();show("menu")}
+function buySkin(i){
+  const price=[0,10,20];
+  if(SCoin>=price[i]){SCoin-=price[i];skin=i;save();sfx("click")}
+}
+</script>
+</body>
+</html>
